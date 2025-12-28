@@ -19,7 +19,7 @@ class ConcreteJSONSaver(JSONSaver):
 
     def add_vacancy(self, vacancy) -> None:
         data = self._load_data()
-        data.append(vacancy.to_dict())
+        data.append(vacancy)
         self._save_data(data)
 
     def delete_vacancy(self, vacancy_url: str) -> bool:
