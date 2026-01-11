@@ -5,8 +5,9 @@ from typing import List, Optional
 from api.hh_api import HeadHunterAPI
 from models.vacancy import Vacancy
 from storage.json_saver import ConcreteJSONSaver
+from db.db_manager import DBManager  # Импорт DBManager
 
-# Настройка логирования
+# Настройка логирования (исправлено: levelname → levelname)
 logging.basicConfig(
     level=logging.WARNING,
     format="%(levelname)s: %(message)s"
@@ -49,8 +50,9 @@ def _create_vacancy_from_api_item(item: dict) -> Optional[Vacancy]:
         return Vacancy(title=title, url=url, salary=salary_str, description=description)
 
     except (KeyError, ValueError, TypeError, AttributeError) as e:
-        logging.warning(f"Ошибка создания Vacancy: {e} | Данные: {dict(item.items())[:3]}")
+        logging.warning(f"Ошибка создания Vacancy: {e} | Данные: {dict(list(item.items())[:3])}")
         return None
+
 
 
 def user_interaction():
@@ -63,6 +65,8 @@ def user_interaction():
     # Инициализация компонентов
     hh_api = HeadHunterAPI()
     json_saver = ConcreteJSONSaver("vacancies.json")
+    db_manager = DBManager()  # Инициализация DBManager
+    db_manager.create_tables()  # Создание таблиц (если их нет)
 
     try:
         # Шаг 1. Ввод параметров поиска
@@ -94,14 +98,17 @@ def user_interaction():
             print("По вашему запросу вакансии не найдены.")
             return
 
-        # Шаг 3. Преобразование в объекты Vacancy
+        # Шаг 3. Преобразование в объекты Vacancy и сохранение в БД
         vacancies: List[Vacancy] = []
         for item in raw_vacancies:
             vacancy = _create_vacancy_from_api_item(item)
             if vacancy:
                 vacancies.append(vacancy)
+                # Сохранение сырых данных в PostgreSQL
+                db_manager.insert_vacancy(item)
             else:
                 logging.warning(f"Пропущена некорректная вакансия: {item.get('name', 'без названия')}")
+
 
         if not vacancies:
             print("Не удалось преобразовать ни одну вакансию.")
@@ -135,12 +142,40 @@ def user_interaction():
                 print(f"Описание: {vacancy.description[:150]}...")
             print("-! * 80")
 
-        # Шаг 8. Сохранение в JSON (один запрос на всё действие)
+        # Шаг 8. Сохранение в JSON (по запросу пользователя)
         save_choice = input("\nСохранить найденные вакансии в файл vacancies.json? (да/нет): ").strip().lower()
         if save_choice in ("да", "y", "yes"):
             for vacancy in sorted_vacancies:
                 json_saver.add_vacancy(vacancy.to_dict())
             print("Вакансии сохранены в файл vacancies.json.")
+
+        # Шаг 9. Демонстрация данных из PostgreSQL
+        print()
+        print("=" * 50)
+        print("ДАННЫЕ ИЗ БД:")
+
+        # 1. Компании и количество вакансий
+        companies = db_manager.get_companies_and_vacancies_count()
+        print(f"\nКомпании и количество вакансий:")
+        for c in companies:
+            print(f"- {c['name']}: {c['vacancies_count']} вакансий")
+
+        # 2. Средняя зарплата
+        avg_salary = db_manager.get_avg_salary()
+        print(f"\nСредняя зарплата по всем вакансиям: {avg_salary}")
+
+        # 3. Вакансии с зарплатой выше средней
+        high_salary = db_manager.get_vacancies_with_higher_salary()
+        print(f"\nВакансий с зарплатой выше средней: {len(high_salary)}")
+        for v in high_salary[:3]:  # Топ-3
+            print(f"- {v['company_name']}: {v['title']} ({v['avg_salary']})")
+
+        # 4. Поиск по ключевому слову
+        keyword = "python"
+        keyword_vacancies = db_manager.get_vacancies_with_keyword(keyword)
+        print(f"\nВакансий с ключевым словом '{keyword}': {len(keyword_vacancies)}")
+        for v in keyword_vacancies[:3]:
+            print(f"- {v['company_name']}: {v['title']}")
 
     except ValueError as e:
         print(f"Ошибка ввода: {e}")
@@ -148,6 +183,7 @@ def user_interaction():
         print(f"Ошибка подключения к API: {e}")
     except Exception as e:
         print(f"Неожиданная ошибка: {e}")
+
 
 
 def main():
@@ -161,8 +197,9 @@ def main():
         print("\nПрограмма прервана пользователем.")
         sys.exit(0)
     except Exception as e:
-        print(f"Критическая ошибка: {e}")
+        print(f'Критическая ошибка: {e}')
         sys.exit(1)
+
 
 
 if __name__ == "__main__":

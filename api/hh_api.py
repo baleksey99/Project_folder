@@ -1,66 +1,44 @@
-from abc import ABC, abstractmethod
 from typing import Dict, List
 import requests
 
 
-class VacancyAPI(ABC):
-    """Абстрактный класс для работы с API сервисов вакансий."""
-
-    @abstractmethod
-    def connect(self) -> bool:
-        """Установить соединение с API."""
-        pass
-
-    @abstractmethod
-    def get_vacancies(self, query: str, per_page: int = 10) -> List[Dict]:
-        """Получить вакансии по запросу."""
-        pass
-
-
-class HeadHunterAPI(VacancyAPI):
-    """Реализация API для hh.ru."""
+class HeadHunterAPI:
+    """Клиент для работы с API hh.ru."""
 
     def __init__(self, base_url: str = "https://api.hh.ru"):
-        self._base_url = base_url
-        self._session = requests.Session()
+        self.base_url = base_url
+        self.session = requests.Session()
 
-    def _connect(self) -> bool:
-        """Приватный метод подключения к API."""
-        try:
-            response = self._session.get(f"{self._base_url}/vacancies")
-            return response.status_code == 200
-        except requests.RequestException:
-            return False
+    def get_employer_info(self, employer_id: int) -> Dict:
+        """Получить информацию о компании."""
+        url = f"{self.base_url}/employers/{employer_id}"
+        response = self.session.get(url)
+        response.raise_for_status()
+        return response.json()
 
-    def connect(self) -> bool:
-        return self._connect()
+    def get_company_vacancies(self, employer_id: int, per_page: int = 100) -> List[Dict]:
+        """Получить вакансии компании."""
+        url = f"{self.base_url}/vacancies"
+        params = {"employer_id": employer_id, "per_page": per_page}
+        response = self.session.get(url, params=params)
+        response.raise_for_status()
+        return response.json().get("items", [])
 
-    def get_vacancies(self, query: str, per_page: int = 10) -> List[Dict]:
+    def get_vacancies(self, query: str, area: int = None, per_page: int = 20) -> List[Dict]:
         """
-        Получить вакансии с hh.ru по поисковому запросу.
+        Получить вакансии по поисковому запросу.
 
-        Args:
-            query: поисковый запрос (например, "Python developer")
-            per_page: количество вакансий в ответе (макс. 100)
-
-        Returns:
-            Список словарей с данными вакансий
+        :param query: поисковый запрос (например, 'Python разработчик')
+        :param area: ID региона (по умолчанию None — все регионы)
+        :param per_page: количество вакансий на страницу
+        :return: список вакансий
         """
-        if not self.connect():
-            raise ConnectionError("Не удалось подключиться к API hh.ru")
-
+        url = f"{self.base_url}/vacancies"
         params = {
             "text": query,
-            "per_page": per_page,
-            "page": 0
+            "area": area,
+            "per_page": per_page
         }
-        try:
-            response = self._session.get(
-                f"{self._base_url}/vacancies",
-                params=params
-            )
-            response.raise_for_status()
-            data = response.json()
-            return data.get("items", [])
-        except requests.RequestException as e:
-            raise ConnectionError(f"Ошибка API: {e}")
+        response = self.session.get(url, params=params)
+        response.raise_for_status()
+        return response.json().get("items", [])
